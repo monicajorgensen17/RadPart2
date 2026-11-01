@@ -1,28 +1,25 @@
 {
-    "compilerOptions": {
-        "experimentalDecorators": true,
-        "baseUrl": ".",
-        "paths": {
-            "c/hello": [
-                "hello/hello.js"
-            ],
-            "c/*": [
-                "*"
-            ]
-        }
-    },
-    "include": [
-        "**/*",
-        "../../../../.sfdx/typings/lwc/**/*.d.ts"
-    ],
-    "typeAcquisition": {
-        "include": [
-            "jest"
-        ]
-    },
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "baseUrl": ".",
     "paths": {
-        "c/*": [
-            "*"
-        ]
+      "c/*": [
+        "*"
+      ]
     }
+  },
+  "include": [
+    "**/*",
+    "../../../../.sfdx/typings/lwc/**/*.d.ts"
+  ],
+  "typeAcquisition": {
+    "include": [
+      "jest"
+    ]
+  },
+  "paths": {
+    "c/*": [
+      "*"
+    ]
+  }
 }
