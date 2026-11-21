@@ -26,9 +26,11 @@ public with sharing class RecipeTriggerHandler {
                 || String.isBlank(r.Active_Time_Units__c)
                 || r.Servings__c == null) {
                 r.Draft__c = true;
+                } else {
+                    r.Draft__c = false;
+                }
             }
         }
-    }
 
     private static void setComplexity(List<Recipe__c> recipes) {
         for (Recipe__c r : recipes) {
