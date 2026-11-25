@@ -1,7 +1,16 @@
+/**
+ * RecipeTriggerHandler (week 6)
+ *
+ * Requirement change: a recipe missing a required field is no longer
+ * saved as Draft. It is blocked with addError instead.
+ */
 public with sharing class RecipeTriggerHandler {
 
+    @TestVisible
+    private static final String MISSING_FIELDS_ERROR = 'Recipe is missing required fields: ';
+
     public static void handleBeforeInsert(List<Recipe__c> newRecipes) {
-        markDraftIfMissingValues(newRecipes);
+        validateRequiredFields(newRecipes);
         setComplexity(newRecipes);
     }
 
@@ -10,7 +19,7 @@ public with sharing class RecipeTriggerHandler {
     }
 
     public static void handleBeforeUpdate(List<Recipe__c> newRecipes, Map<Id, Recipe__c> oldMap) {
-        markDraftIfMissingValues(newRecipes);
+        validateRequiredFields(newRecipes);
         setComplexity(newRecipes);
     }
 
@@ -18,19 +27,24 @@ public with sharing class RecipeTriggerHandler {
         createReviewTasks(newRecipes);
     }
 
-    private static void markDraftIfMissingValues(List<Recipe__c> recipes) {
+    private static void validateRequiredFields(List<Recipe__c> recipes) {
         for (Recipe__c r : recipes) {
-            if (String.isBlank(r.Name)
-                || r.Active_Time__c == null
-                || String.isBlank(r.Description__c)
-                || String.isBlank(r.Active_Time_Units__c)
-                || r.Servings__c == null) {
-                r.Draft__c = true;
-                } else {
-                    r.Draft__c = false;
-                }
+            List<String> missing = new List<String>();
+            if (String.isBlank(r.Name))                 { missing.add('Name'); }
+            if (r.Active_Time__c == null)               { missing.add('Active Time'); }
+            if (String.isBlank(r.Active_Time_Units__c)) { missing.add('Active Time Units'); }
+            if (String.isBlank(r.Description__c))       { missing.add('Description'); }
+            if (r.Servings__c == null)                  { missing.add('Servings'); }
+
+            if (!missing.isEmpty()) {
+                // replaces the old: r.Draft__c = true;
+                r.addError(MISSING_FIELDS_ERROR + String.join(missing, ', '));
+            } else {
+                // clears Draft on any older draft recipes once they're fixed
+                r.Draft__c = false;
             }
         }
+    }
 
     private static void setComplexity(List<Recipe__c> recipes) {
         for (Recipe__c r : recipes) {

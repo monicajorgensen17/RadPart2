@@ -1,8 +1,6 @@
 /** 
  * Tests for RecipeTriggerHandler
  * 
- * The tests fire the trigger with real DML instad of calling handler methods directly.
- *
  */
 
  @IsTest
@@ -48,67 +46,72 @@
     }
 
     @IsTest
-    static void missingValue_onInsert_isDraft() {
-        Recipe__c r = buildCompleteRecipe('Missing Description');
-        r.Description__c = null;
+static void missingValue_onInsert_throwsError() {
+    Recipe__c r = buildCompleteRecipe('Missing Description');
+    r.Description__c = null;
 
-        Test.startTest();
+    Boolean exceptionThrown = false;
+
+    Test.startTest();
+    try {
         insert r;
-        Test.stopTest();
-
-        r = [SELECT Draft__c FROM Recipe__c WHERE Id = :r.Id];
-        Assert.isTrue(r.Draft__c, ' A recipe missing description should be marked Draft.');
+    } catch (DmlException e) {
+        exceptionThrown = true;
+        Assert.isTrue(e.getMessage().contains(RecipeTriggerHandler.MISSING_FIELDS_ERROR),
+            'Unexpected error: ' + e.getMessage());
+        Assert.isTrue(e.getMessage().contains('Description'),
+            'Error should name the missing field');
     }
+    Test.stopTest();
 
-    @IsTest 
-    static void eachMissingField_isDraft() {
-        //one recipe per required field, each missing just that field
-        Recipe__c noTime = buildCompleteRecipe('No Active Time'); noTime.Active_Time__c = null;
-        Recipe__c noUnits = buildCompleteRecipe('No units'); noUnits.Active_Time__c = null;
-        Recipe__c noDesc = buildCompleteRecipe('No Description'); noDesc.Description__c = null;
-        Recipe__c noServings = buildCompleteRecipe('No servings'); noServings.Servings__c = null;
-        List<Recipe__c> recipes = new List<Recipe__c>{ noTime, noUnits, noDesc, noServings };
-
-        Test.startTest();
-        insert recipes;
-        Test.stopTest();
-
-        for (Recipe__c r : [SELECT Name, Draft__c FROM Recipe__c WHERE Id IN : recipes]) {
-            Assert.isTrue(r.Draft__c, r.Name + ' should be marked Draft');
-        }
-
-    }
+    Assert.isTrue(exceptionThrown, 'Inserting a recipe missing Description should throw an error');
+}
 
     @IsTest
-    static void missingValue_onUpdate_isDraft() {
-        Recipe__c r = buildCompleteRecipe('will lose servings');
-        insert r;
+static void eachMissingField_isRejected() {
+    // one recipe per required field, each missing just that field
+    Recipe__c noTime     = buildCompleteRecipe('No Active Time'); noTime.Active_Time__c = null;
+    Recipe__c noUnits    = buildCompleteRecipe('No units');       noUnits.Active_Time_Units__c = null;
+    Recipe__c noDesc     = buildCompleteRecipe('No Description'); noDesc.Description__c = null;
+    Recipe__c noServings = buildCompleteRecipe('No servings');    noServings.Servings__c = null;
 
-        Test.startTest();
+    List<Recipe__c> recipes = new List<Recipe__c>{ noTime, noUnits, noDesc, noServings };
+    // same order as the list above
+    List<String> expectedField = new List<String>{ 'Active Time', 'Active Time Units', 'Description', 'Servings' };
+
+    Test.startTest();
+    List<Database.SaveResult> results = Database.insert(recipes, false);
+    Test.stopTest();
+
+    for (Integer i = 0; i < results.size(); i++) {
+        Assert.isFalse(results[i].isSuccess(), recipes[i].Name + ' should have been rejected');
+        Assert.isTrue(results[i].getErrors()[0].getMessage().contains(expectedField[i]),
+            recipes[i].Name + ' error should mention ' + expectedField[i]);
+    }
+    Assert.areEqual(0, [SELECT COUNT() FROM Recipe__c WHERE Id IN :recipes], 'none should be saved');
+}
+
+    @IsTest
+static void missingValue_onUpdate_throwsError() {
+    Recipe__c r = buildCompleteRecipe('will lose servings');
+    insert r;
+
+    Boolean exceptionThrown = false;
+
+    Test.startTest();
+    try {
         r.Servings__c = null;
         update r;
-        Test.stopTest();
-
-        r = [SELECT Draft__c FROM Recipe__c WHERE Id = :r.Id];
-        Assert.isTrue(r.Draft__c, 'clearing a key value on update should mark recipe draft');
-
+    } catch (DmlException e) {
+        exceptionThrown = true;
+        Assert.isTrue(e.getMessage().contains('Servings'),
+            'Error should name the missing field: ' + e.getMessage());
     }
+    Test.stopTest();
 
-    @IsTest
-    static void filledIn_onUpdate_isNoLongerDraft() {
-        //does draft get unchecked once missing value is added
-        Recipe__c r = buildCompleteRecipe('Starts as draft');
-        r.Description__c = null;
-        insert r;
+    Assert.isTrue(exceptionThrown, 'Clearing Servings on update should throw an error');
+}
 
-        Test.startTest();
-        r.Description__c = 'description add';
-        update r;
-        Test.stopTest();
-
-        r = [SELECT Draft__c FROM Recipe__c WHERE Id = :r.Id];
-        Assert.isFalse(r.Draft__c, 'filling in missing value should clear draft');
-    }
 
     @IsTest
     static void complexity_isSetOnInsert() {
@@ -127,19 +130,25 @@
         Assert.areEqual(expected, r.Complexity__c, 'complexity should match helper rating');
     }
 
-    @IsTest
-    static void complexity_isRecalculatedOnUpdate() {
-        Recipe__c r = buildCompleteRecipe('gets harder');
-        insert r;
+  @IsTest
+static void complexity_isRecalculatedOnUpdate() {
+    Recipe__c r = buildCompleteRecipe('gets harder');
+    insert r;
 
-        Test.startTest();
-        r.Active_Time__c = 5;
-        r.Active_Time_Units__c = 'Hours';
-        Test.stopTest();
+    Test.startTest();
+    r.Active_Time__c = 5;
+    r.Active_Time_Units__c = 'Hours';
+    update r;
+    Test.stopTest();
 
-        r = [SELECT Complexity__c FROM Recipe__c WHERE Id = :r.Id];
-        Assert.isNotNull(r.Complexity__c, 'complexity should still be set after update');
-    }
+    r = [SELECT Name, Active_Time__c, Active_Time_Units__c, Description__c, Servings__c, Complexity__c
+         FROM Recipe__c WHERE Id = :r.Id];
+
+    Decimal rating = HelperFunctions.rateRecipeComplexity(r);
+    String expected = rating == 3 ? 'Difficult' : rating == 2 ? 'Moderate' : 'Simple';
+
+    Assert.areEqual(expected, r.Complexity__c, 'complexity should be recalculated after update');
+}
         //review task for cookbook owners
         @IsTest
         static void updatingUsedRecipe_createsReviewTask() {
@@ -174,21 +183,28 @@
         //-----BULK ------
 
         @IsTest
-        static void bulkInsert_200Recipes() {
-            List<Recipe__c> recipes = new List<Recipe__c>();
-            for (Integer i = 0; i < 200; i++) {
-                Recipe__c r = buildCompleteRecipe('Bulk ' + i);
-                if (Math.mod(i, 2) == 0) {
-                    r.Description__c = null; //half are drafts
-                }
-                recipes.add(r);
-            }
-
-            Test.startTest();
-            insert recipes;
-            Test.stopTest();
-
-            Assert.areEqual(100, [SELECT COUNT() FROM Recipe__c WHERE Id IN :recipes AND Draft__c = true], 'half of the bulk recipes are draft');
-            Assert.areEqual(200, [SELECT COUNT() FROM Recipe__c WHERE Id IN :recipes AND Complexity__c != null], 'every bulk recipe gets complexity');
+static void bulkInsert_onlyIncompleteRecipesRejected() {
+    List<Recipe__c> recipes = new List<Recipe__c>();
+    for (Integer i = 0; i < 200; i++) {
+        Recipe__c r = buildCompleteRecipe('Bulk ' + i);
+        if (Math.mod(i, 2) == 0) {
+            r.Description__c = null; // half are incomplete
         }
+        recipes.add(r);
     }
+
+    Test.startTest();
+    List<Database.SaveResult> results = Database.insert(recipes, false);
+    Test.stopTest();
+
+    Integer failures = 0;
+    for (Database.SaveResult sr : results) {
+        if (!sr.isSuccess()) { failures++; }
+    }
+
+    Assert.areEqual(100, failures, 'the 100 incomplete recipes should be rejected');
+    Assert.areEqual(100, [SELECT COUNT() FROM Recipe__c WHERE Name LIKE 'Bulk %'], 'the 100 complete recipes should save');
+    Assert.areEqual(100, [SELECT COUNT() FROM Recipe__c WHERE Name LIKE 'Bulk %' AND Complexity__c != null], 'saved recipes still get complexity');
+    Assert.areEqual(0, [SELECT COUNT() FROM Recipe__c WHERE Draft__c = true], 'nothing should be marked Draft');
+}
+ }
